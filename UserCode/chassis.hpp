@@ -48,11 +48,8 @@ inline JustEncoder* chassis_loc_;
 inline Master*      chassis_ctrl_;
 
 void APP_CHASSIS_Init();
-
-void Ctrl_Init();
-
+void ctrl_init();
 void update_1kHz();
-void update_100Hz();
 
 } // namespace Chassis
 

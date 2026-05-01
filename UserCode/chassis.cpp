@@ -110,12 +110,12 @@ static void Motion_Init()
     });
 }
 
-static void Loc_Init()
+static void loc_init()
 {
     chassis_loc_ = new JustEncoder(*chassis_);
 }
 
-static void Controller_Init()
+static void controller_init()
 {
     chassis_ctrl_ =
             new Master(*chassis_,
@@ -135,10 +135,10 @@ void APP_CHASSIS_Init()
 {
     Motion_Init(); // 底盘启动
 }
-void Ctrl_Init()
+void ctrl_init()
 {
-    Loc_Init();        // 定位启动
-    Controller_Init(); // 底盘控制器启动
+    loc_init();        // 定位启动
+    controller_init(); // 底盘控制器启动
 }
 void update_1kHz()
 {
