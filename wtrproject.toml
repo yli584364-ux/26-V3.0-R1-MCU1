@@ -6,5 +6,12 @@ ioc_file = "26-V3.0-R1-MCU1.ioc"
 
 [dependencies]
 packages = [
+    "Chassis::ControllerMaster",
+    "Chassis::Core",
+    "Chassis::Steering4",
+    "ChassisLocalization::JustEncoder",
+    "MotorDrivers::Controller",
+    "MotorDrivers::DJI",
+    "MotorDrivers::VESC",
     "utils",
 ]
