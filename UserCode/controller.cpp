@@ -258,7 +258,7 @@ extern "C" void controller_task(void* argument)
     }
 }
 
-void Controller_Receive_Init(void)
+void app_controller_receive_init(void)
 {
     control_mode = MANUAL;
     Button_Init();

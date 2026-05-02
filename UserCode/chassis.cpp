@@ -21,7 +21,7 @@ MotorVelController* motor_wheelspeed_velctrl[4] = { nullptr };
 MotorPosController* motor_wheeldir_posctrl[4]   = { nullptr };
 MotorVelController* motor_wheeldir_velctrl[4]   = { nullptr };
 // 初始化一个底盘
-static void Motion_Init()
+static void motion_init()
 {
     for (size_t i = 0; i < 4; i++)
     {
@@ -131,9 +131,9 @@ static void controller_init()
                                   .yaw = {.max_spd = 90.0f, .max_acc = 45.0f, .max_jerk = 90.0f}}});
 }
 
-void APP_CHASSIS_Init()
+void app_chassis_init()
 {
-    Motion_Init(); // 底盘启动
+    motion_init(); // 底盘启动
 }
 void ctrl_init()
 {

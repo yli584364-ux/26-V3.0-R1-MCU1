@@ -47,7 +47,7 @@ inline Steering4*   chassis_;
 inline JustEncoder* chassis_loc_;
 inline Master*      chassis_ctrl_;
 
-void APP_CHASSIS_Init();
+void app_chassis_init();
 void ctrl_init();
 void update_1kHz();
 
