@@ -3,16 +3,15 @@
  * @author  rediduck
  * @date    2026-05-1
  */
-#include "chassis.hpp"
 #include "cmsis_os2.h"
-#include "device.hpp"
-#include "controller.hpp"
 #include "tim.h"
 #include "main.h"
+
 #include "chassis.hpp"
 #include "SteeringWheel.hpp"
-
-uint32_t count = 0;
+#include "device.hpp"
+#include "controller.hpp"
+#include "flags.hpp"
 
 osThreadId_t         softTIMHandle;
 const osThreadAttr_t softTIM_attributes = {
@@ -49,8 +48,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 
 extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    // 外部中断回调函数
-    count++;
     GPIO_EXTI_Callback(GPIO_Pin);
 }
 
@@ -59,9 +56,10 @@ extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 extern "C" void Init(void* argument)
 {
     /* 初始化代码 */
-    Controller::Controller_Receive_Init();
+    flags_create();
+    Controller::app_controller_receive_init();
     Device::app_device_init();
-    Chassis::APP_CHASSIS_Init();
+    Chassis::app_chassis_init();
     // 启动定时器
     HAL_TIM_RegisterCallback(&htim6, HAL_TIM_PERIOD_ELAPSED_CB_ID, TIM_Callback_1kHz);
     HAL_TIM_Base_Start_IT(&htim6);
