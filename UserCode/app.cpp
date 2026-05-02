@@ -74,7 +74,7 @@ extern "C" void Init(void* argument)
 {
     /* 初始化代码 */
     Controller::Controller_Receive_Init();
-    CammeraReceive_Init();  // 初始化视觉接收
+    CammeraReceive_Init(); // 初始化视觉接收
     Device::app_device_init();
     Chassis::APP_CHASSIS_Init();
     // 启动定时器

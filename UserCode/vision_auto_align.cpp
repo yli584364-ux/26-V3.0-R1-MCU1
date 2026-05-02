@@ -3,40 +3,43 @@
 #include "vision_receive.hpp"
 #include <cmath>
 
-constexpr uint32_t kVisionLostCycleThreshold        = 10U; // controller_task 10ms周期，约100ms
-constexpr uint32_t kAutoAlignWindowCapacity           = 20U;  // 滤波窗口容量
-constexpr float    kAutoAlignOutlierThresholdM        = 0.05f; // 位置离群值阈值，单位米
-constexpr float    kAutoAlignOutlierThresholdDeg      = 2.0f; // 朝向离群值阈值，单位度
+constexpr uint32_t kVisionLostCycleThreshold     = 10U;   // controller_task 10ms周期，约100ms
+constexpr uint32_t kAutoAlignWindowCapacity      = 20U;   // 滤波窗口容量
+constexpr float    kAutoAlignOutlierThresholdM   = 0.05f; // 位置离群值阈值，单位米
+constexpr float    kAutoAlignOutlierThresholdDeg = 2.0f;  // 朝向离群值阈值，单位度
 
-//滤波系数和限幅值，自动对齐时每周期（10ms）允许的最大调整量，过大可能导致震荡，过小可能导致响应迟钝
-constexpr float    kVisionLpfAlpha             = 0.85f; 
-constexpr float    kVisionMaxStepPerCycleM     = 0.03f;
-constexpr float    kVisionMaxStepPerCycleDeg   = 12.0f;
-constexpr float    kVisionPosDeadbandM         = 0.03f;
-constexpr float    kVisionYawLpfAlpha          = 0.60f;
-constexpr float    kVisionYawDeadbandDeg       = 0.8f;
-constexpr float    kAutoAlignYawLockDeg        = 2.0f;
+// 滤波系数和限幅值，自动对齐时每周期（10ms）允许的最大调整量，过大可能导致震荡，过小可能导致响应迟钝
+constexpr float kVisionLpfAlpha           = 0.85f;
+constexpr float kVisionMaxStepPerCycleM   = 0.03f;
+constexpr float kVisionMaxStepPerCycleDeg = 12.0f;
+constexpr float kVisionPosDeadbandM       = 0.03f;
+constexpr float kVisionYawLpfAlpha        = 0.60f;
+constexpr float kVisionYawDeadbandDeg     = 0.8f;
+constexpr float kAutoAlignYawLockDeg      = 2.0f;
 
-static uint32_t g_vision_last_update_seq       = 0U;
+static uint32_t g_vision_last_update_seq = 0U;
+
 static uint32_t g_vision_stale_cycles          = 0U;
 static bool     g_auto_align_pos_executed_once = false;
-static uint32_t g_auto_align_window_count      = 0U;  // 窗口中当前有效样本数
+static uint32_t g_auto_align_window_count      = 0U; // 窗口中当前有效样本数
 static uint32_t g_auto_align_last_sample_seq   = 0U;
 static float    g_auto_align_window_x          = 0.0f; // 窗口内X坐标累加和
 static float    g_auto_align_window_y          = 0.0f; // 窗口内Y坐标累加和
 static float    g_auto_align_window_yaw        = 0.0f; // 窗口内朝向累加和
-static bool     g_step_cmd_active              = false; 
-static bool     g_emergency_hold_active        = false; // 紧急停止状态，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
-static bool     g_vision_filter_inited         = false; // 视觉输入滤波器是否已初始化，未初始化时直接将首个输入作为滤波器初始值
-static float    g_target_x_filtered            = 0.0f;
-static float    g_target_y_filtered            = 0.0f;
+static bool     g_step_cmd_active              = false;
+static bool     g_emergency_hold_active =
+        false; // 紧急停止状态，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
+static bool g_vision_filter_inited =
+        false; // 视觉输入滤波器是否已初始化，未初始化时直接将首个输入作为滤波器初始值
+static float g_target_x_filtered = 0.0f;
+static float g_target_y_filtered = 0.0f;
 
 static inline float ClampFloat(float value, float min_value, float max_value)
 {
     return value < min_value ? min_value : (value > max_value ? max_value : value);
 }
 
-//滤波控制，闭环位置坐标滤波
+// 滤波控制，闭环位置坐标滤波
 static void ApplyVisionTargetFilter(float raw_x, float raw_y, float* out_x, float* out_y)
 {
     if (!out_x || !out_y)
@@ -74,7 +77,7 @@ static void ApplyVisionTargetFilter(float raw_x, float raw_y, float* out_x, floa
     *out_y = g_target_y_filtered;
 }
 
-//滤波控制，闭环朝向滤波
+// 滤波控制，闭环朝向滤波
 static void ApplyYawTargetFilter(float raw_yaw, float* yaw)
 {
     if (!yaw)
@@ -94,7 +97,7 @@ static void ApplyYawTargetFilter(float raw_yaw, float* yaw)
     *yaw = yaw_output;
 }
 
-//监测紧急停止按键，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
+// 监测紧急停止按键，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
 static void AbortAutoAlignAndStop(float*              target_x,
                                   float*              target_y,
                                   float*              target_yaw,
@@ -108,15 +111,15 @@ static void AbortAutoAlignAndStop(float*              target_x,
     }
 
     VisionAutoAlign_ResetState();
-    g_step_cmd_active           = false;
-    *auto_mode                  = 0;
-    *target_x                   = 0.0f;
-    *target_y                   = 0.0f;
-    *target_yaw                 = 0.0f;
-    *chassis_control_mode       = VEL_Control;
-    chassis_v->vx               = 0.0f;
-    chassis_v->vy               = 0.0f;
-    chassis_v->wz               = 0.0f;
+    g_step_cmd_active     = false;
+    *auto_mode            = 0;
+    *target_x             = 0.0f;
+    *target_y             = 0.0f;
+    *target_yaw           = 0.0f;
+    *chassis_control_mode = VEL_Control;
+    chassis_v->vx         = 0.0f;
+    chassis_v->vy         = 0.0f;
+    chassis_v->wz         = 0.0f;
 }
 
 void VisionAutoAlign_ResetState(void)
@@ -141,7 +144,7 @@ void VisionAutoAlign_OnModeEnter(void)
     VisionAutoAlign_ResetState();
 }
 
-//应用视觉对齐坐标
+// 应用视觉对齐坐标
 static bool VisionAutoAlign_Apply(float*              target_x,
                                   float*              target_y,
                                   float*              target_yaw,
@@ -229,12 +232,12 @@ static bool VisionAutoAlign_Apply(float*              target_x,
         const float window_avg_x   = g_auto_align_window_x / (float)g_auto_align_window_count;
         const float window_avg_y   = g_auto_align_window_y / (float)g_auto_align_window_count;
         const float window_avg_yaw = g_auto_align_window_yaw / (float)g_auto_align_window_count;
-        
+
         const float delta_x   = fabsf(sample_target_x - window_avg_x);
         const float delta_y   = fabsf(sample_target_y - window_avg_y);
         const float delta_yaw = fabsf(sample_target_yaw - window_avg_yaw);
         const float delta_pos = sqrtf(delta_x * delta_x + delta_y * delta_y);
-        
+
         // 如果位置或朝向偏差过大则舍弃该样本
         if (delta_pos > kAutoAlignOutlierThresholdM || delta_yaw > kAutoAlignOutlierThresholdDeg)
         {
