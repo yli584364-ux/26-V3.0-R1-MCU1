@@ -4,6 +4,9 @@
  * @date    2026-05-1
  */
 #include "cmsis_os2.h"
+#include "device.hpp"
+#include "controller.hpp"
+#include "vision_receive.hpp"
 #include "tim.h"
 #include "main.h"
 
@@ -44,6 +47,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
     {
         Controller::ControllerReceive_OnRxCplt();
     }
+    else if (huart->Instance == USART2)
+    {
+        CammeraReceive_OnRxCplt(huart);
+    }
 }
 
 extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -51,13 +58,22 @@ extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     GPIO_EXTI_Callback(GPIO_Pin);
 }
 
+extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart)
+{
+    // UART错误处理
+    if (huart->Instance == USART2)
+    {
+        CammeraReceive_OnError(huart);
+    }
+}
+
 /////////////////////////////////////////////////////////////
 
 extern "C" void Init(void* argument)
 {
     /* 初始化代码 */
-    flags_create();
-    Controller::app_controller_receive_init();
+    Controller::Controller_Receive_Init();
+    CammeraReceive_Init(); // 初始化视觉接收
     Device::app_device_init();
     Chassis::app_chassis_init();
     // 启动定时器
