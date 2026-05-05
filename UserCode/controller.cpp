@@ -32,6 +32,7 @@
 #include "controller.hpp"
 #include "stm32f4xx_hal_uart.h"
 #include "watchdog.hpp"
+#include "vision_auto_align.hpp"
 #include <cstdint>
 #include <string.h>
 #include <cstdlib>
@@ -72,6 +73,15 @@ uint8_t     DIP_switch;         // 拨码开关状态
 uint8_t     crc = 0;            // CRC校验值
 cmd_vel     joystick_vel;
 static mode control_mode = MANUAL;
+
+// 自动对准相关状态变量
+static float              g_auto_align_target_x     = 0.0f;
+static float              g_auto_align_target_y     = 0.0f;
+static float              g_auto_align_target_yaw   = 0.0f;
+static Control_Mode       g_auto_align_control_mode = VEL_Control;
+static Chassis_Velocity_t g_auto_align_chassis_v    = { 0.0f, 0.0f, 0.0f };
+static uint8_t            g_auto_mode_status = 0U; // 自动对准状态：0=未激活, 1=detect, 2=apriltag
+static bool g_auto_align_last_button_state   = false; // 记录上一次按键状态，用于检测按键边界
 
 osThreadId_t         controllerHandle;
 const osThreadAttr_t controller_attributes = {
@@ -210,6 +220,7 @@ extern "C" void controller_task(void* argument)
             uint8_t received_crc  = Msg_Read(13);
 
             if (calculate_crc == received_crc)
+
             {
                 // 校验通过，开始解析
                 LX = int16_t((Msg_Read(2) << 8) | Msg_Read(3));
@@ -263,6 +274,25 @@ void ControllerReceive_OnRxCplt()
 
 void softTIM_controller()
 {
+    // 自动对准按键检测（button[9] 用于一键自动对准）
+    bool current_auto_align_button = button[9];
+
+    if (current_auto_align_button && !g_auto_align_last_button_state)
+    {
+        // 检测到按键下降沿，切换模式
+        if (control_mode == MANUAL)
+        {
+            control_mode = AUTO_AIM;
+            VisionAutoAlign_OnModeEnter();
+        }
+        else if (control_mode == AUTO_AIM)
+        {
+            control_mode = MANUAL;
+            VisionAutoAlign_ResetState();
+        }
+    }
+    g_auto_align_last_button_state = current_auto_align_button;
+
     switch (control_mode)
     {
     case MANUAL:
@@ -272,8 +302,27 @@ void softTIM_controller()
                                                   false);
         break;
     case AUTO_AIM:
+    {
+        // 调用自动对准逻辑
+        VisionAutoAlign_RunMode(0U,        // button_status
+                                button[8], // button8_pressed (紧急停止按钮)
+                                &g_auto_align_target_x,
+                                &g_auto_align_target_y,
+                                &g_auto_align_target_yaw,
+                                &g_auto_align_control_mode,
+                                &g_auto_align_chassis_v,
+                                &g_auto_mode_status);
 
+        // 位置环控制：使用目标位姿
+        const chassis::Posture           target_posture = { .x   = g_auto_align_target_x,
+                                                            .y   = g_auto_align_target_y,
+                                                            .yaw = g_auto_align_target_yaw };
+        Chassis::Master::TrajectoryLimit limit; // 使用默认限制
+        Chassis::chassis_ctrl_->setTargetPostureInWorld(target_posture,
+                                                        Chassis::Master::defaultTrajectoryLinkMode,
+                                                        limit);
         break;
+    }
     default:
         break;
     }
