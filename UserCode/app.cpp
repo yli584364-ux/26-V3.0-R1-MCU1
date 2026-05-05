@@ -27,17 +27,17 @@ const osThreadAttr_t softTIM_attributes = {
 
 extern "C" void TIM_Callback_1kHz(TIM_HandleTypeDef* htim)
 {
-    service::Watchdog::EatAll();
-    Controller::update_1kHz();
-    Chassis::update_1kHz();
-    Device::update_1kHz();
+    service::Watchdog::EatAll(); // 看门狗吃狗
+    Controller::update_1kHz();   // 遥控器状态更新
+    Chassis::update_1kHz();      // 底盘控制更新
+    Device::update_1kHz();       // 电机更新
 }
 
 extern "C" void softTIM(void* argument)
 {
     while (1)
     {
-        Controller::softTIM_controller();
+        Controller::softTIM_controller(); // 软定时器，用来更新底盘的目标速度
         osDelay(10);
     }
 }
@@ -56,7 +56,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 
 extern "C" void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    GPIO_EXTI_Callback(GPIO_Pin);
+    GPIO_EXTI_Callback(GPIO_Pin); // 光电门的外部中断
 }
 
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart)
@@ -73,7 +73,7 @@ extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart)
 extern "C" void Init(void* argument)
 {
     /* 初始化代码 */
-    Controller::Controller_Receive_Init();
+    Controller::app_ControllerReceive_init();
     CammeraReceive_Init(); // 初始化视觉接收
     Device::app_device_init();
     Chassis::app_chassis_init();

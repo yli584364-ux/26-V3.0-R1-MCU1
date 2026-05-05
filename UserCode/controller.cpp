@@ -12,13 +12,15 @@
 /**************************************************************************************************
  * 说明：
  *
+ * 在该工程架构下，遥控器模块是高于其他模块的（除了app调用层）
+ *
  * 这个接收代码没有采用库里已经有的统一串口接收和环形缓冲区接收机制
  * 因为rediduck有一点自己关于串口的想法，不想在串口接收中断中放任何解码函数
  * 这套接收的逻辑是：遥控器接收串口接收到DMA -> DMA触发接收中断
  *                 -> 中断回调函数把数据放入环形缓冲区
  *                 -> 创建一个专门的任务轮询环形缓冲区解码数据
  *
- * 经过计算，复制14个字节的开销在0.1微妙左右，
+ * 经过计算，复制14个字节的开销在0.1微秒左右，
  * 远小于115200波特率串口下每个字节约87微秒的接收时间，
  * 因此DMA接收中断中复制数据的开销是完全可以接受的，
  * 不太会遇到溢出的问题，如果你遇到了另说
@@ -26,6 +28,12 @@
  *
  * 拨码开关8位表示：矛杆状态（2）| 抽屉升降状态（1）| 气泵前后位置（1）| 十字摇杆模式（1）|
  * 抽屉左右状态（2）
+ *
+ * 遥控器按钮有两种状态，其中current_buttons表示当前的按钮状态，falling_buttons表示哪些按钮在这一帧发生了抬起事件（从按下变为未按下）
+ * 如果想用遥控器控制实时速度状态，直接在遥控器接收逻辑中对相应速度赋值即可；
+ * 如果想用遥控器按钮触发一些动作，直接使用os相应函数获取flags事件标志即可（注：一定要及时取走，不然事件标志会一直保留）
+ *
+ *
  *
  *
  ***************************************************************************************************/
@@ -36,6 +44,7 @@
 #include <cstdint>
 #include <string.h>
 #include <cstdlib>
+#include "flags.hpp"
 
 namespace Controller
 {
@@ -46,7 +55,6 @@ using ChassisConfig = Chassis::ChassisConfig;
 #define RINGBUFF_SIZE 64
 #define FRAME_HEADER1 0xAA // 帧头1
 #define FRAME_HEADER2 0xBB // 帧头2
-#define BUTTON_NUM    12   // 按钮个数
 
 static uint8_t readIndex  = 0;                 // 读指针
 static uint8_t writeIndex = 0;                 // 写指针
@@ -68,9 +76,9 @@ int16_t LY; // 左摇杆y值数据原始数据
 int16_t RX; // 右摇杆x值数据原始数据
 int16_t RY; // 右摇杆y值数据原始数据
 
-bool        button[BUTTON_NUM]; // 矩阵键盘按钮
-uint8_t     DIP_switch;         // 拨码开关状态
-uint8_t     crc = 0;            // CRC校验值
+uint32_t    button;     // 矩阵键盘按钮
+uint8_t     DIP_switch; // 拨码开关状态
+uint8_t     crc = 0;    // CRC校验值
 cmd_vel     joystick_vel;
 static mode control_mode = MANUAL;
 
@@ -170,12 +178,7 @@ static bool Msg_SyncToHeader()
 
 static void Button_Init(void)
 {
-    // 清零按键状态
-    for (size_t i = 0; i < BUTTON_NUM; i++)
-    {
-        button[i] = 0;
-    }
-    // 清零拨码状态
+    button     = 0;
     DIP_switch = 0;
 }
 
@@ -205,6 +208,7 @@ static float Joystick2Wz(int16_t joystick_value)
 
 extern "C" void controller_task(void* argument)
 {
+    static uint16_t prev_buttons = 0;
     while (1)
     {
         // 每次解析函数调用时都会把所有可解的码全解码了
@@ -233,17 +237,18 @@ extern "C" void controller_task(void* argument)
                 joystick_vel.vel_wz = -1.0f * Joystick2Wz(RY);
 
                 // 解析拨码开关数据
-                DIP_switch = Msg_Read(10);
+                DIP_switch            = Msg_Read(10);
+                uint16_t curr_buttons = (static_cast<uint16_t>(Msg_Read(11)) << 8) |
+                                        Msg_Read(12); // 目前按钮状态
+                uint16_t falling_buttons = static_cast<uint16_t>(
+                        prev_buttons & ~curr_buttons); // 按钮抬起时才会触发
+                button = static_cast<uint32_t>(curr_buttons) |
+                         (static_cast<uint32_t>(DIP_switch) << 16);
+                uint32_t event_flags = static_cast<uint32_t>(falling_buttons) |
+                                       (static_cast<uint32_t>(DIP_switch) << 16);
+                osEventFlagsSet(flags_id, event_flags);
+                prev_buttons = curr_buttons;
 
-                // 解析按钮数据
-                for (size_t i = 0; i < 8; i++)
-                {
-                    button[i] = (Msg_Read(12) >> i) & 0x01;
-                }
-                for (size_t i = 0; i < 4; i++)
-                {
-                    button[8 + i] = (Msg_Read(11) >> i) & 0x01;
-                }
                 decode_success_count++;
                 controller_watchdog.feed(500); // 喂狗（正常情况下每20ms一次）
                 Msg_AddReadIndex(RAWDATA_SIZE);
@@ -259,7 +264,7 @@ extern "C" void controller_task(void* argument)
     }
 }
 
-void app_controller_receive_init(void)
+void app_ControllerReceive_init(void)
 {
     control_mode = MANUAL;
     Button_Init();

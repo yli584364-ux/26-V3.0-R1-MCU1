@@ -1,5 +1,4 @@
 #include "vision_auto_align.hpp"
-
 #include "vision_receive.hpp"
 #include <cmath>
 
