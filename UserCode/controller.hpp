@@ -29,6 +29,7 @@ enum mode
 void ControllerReceive_OnRxCplt();
 void app_controller_receive_init(void);
 void softTIM_controller();
+void update_1kHz();
 
 } // namespace Controller
 

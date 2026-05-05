@@ -23,10 +23,10 @@ using chassis::motion::Steering4;
 using controllers::MotorPosController;
 using controllers::MotorVelController;
 
-#define GPIO_FRONT (GPIO_t{ GPIOA, GPIO_PIN_6 })
+#define GPIO_FRONT (GPIO_t{ GPIOB, GPIO_PIN_0 })
 #define GPIO_LEFT  (GPIO_t{ GPIOB, GPIO_PIN_1 })
-#define GPIO_REAR  (GPIO_t{ GPIOB, GPIO_PIN_0 })
-#define GPIO_RIGHT (GPIO_t{ GPIOA, GPIO_PIN_7 })
+#define GPIO_REAR  (GPIO_t{ GPIOA, GPIO_PIN_7 })
+#define GPIO_RIGHT (GPIO_t{ GPIOA, GPIO_PIN_6 })
 
 // #define GPIO_FRONT (GPIO_t{GPIOA, GPIO_PIN_0})
 // #define GPIO_LEFT  (GPIO_t{GPIOA, GPIO_PIN_1})

@@ -25,6 +25,7 @@ const osThreadAttr_t softTIM_attributes = {
 extern "C" void TIM_Callback_1kHz(TIM_HandleTypeDef* htim)
 {
     service::Watchdog::EatAll();
+    Controller::update_1kHz();
     Chassis::update_1kHz();
     Device::update_1kHz();
 }

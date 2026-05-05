@@ -67,11 +67,11 @@ int16_t LY; // 左摇杆y值数据原始数据
 int16_t RX; // 右摇杆x值数据原始数据
 int16_t RY; // 右摇杆y值数据原始数据
 
-bool           button[BUTTON_NUM]; // 矩阵键盘按钮
-uint8_t        DIP_switch;         // 拨码开关状态
-uint8_t        crc = 0;            // CRC校验值
-static cmd_vel joystick_vel;
-static mode    control_mode = MANUAL;
+bool        button[BUTTON_NUM]; // 矩阵键盘按钮
+uint8_t     DIP_switch;         // 拨码开关状态
+uint8_t     crc = 0;            // CRC校验值
+cmd_vel     joystick_vel;
+static mode control_mode = MANUAL;
 
 osThreadId_t         controllerHandle;
 const osThreadAttr_t controller_attributes = {
@@ -217,9 +217,9 @@ extern "C" void controller_task(void* argument)
                 RX = int16_t((Msg_Read(6) << 8) | Msg_Read(7));
                 RY = int16_t((Msg_Read(8) << 8) | Msg_Read(9));
 
-                joystick_vel.vel_x  = Joystick2Velocity(LY);
-                joystick_vel.vel_y  = -1.0f * Joystick2Velocity(LX);
-                joystick_vel.vel_wz = -1.0f * Joystick2Wz(RX);
+                joystick_vel.vel_y  = -1.0f * Joystick2Velocity(LY);
+                joystick_vel.vel_x  = Joystick2Velocity(LX);
+                joystick_vel.vel_wz = -1.0f * Joystick2Wz(RY);
 
                 // 解析拨码开关数据
                 DIP_switch = Msg_Read(10);
@@ -234,6 +234,7 @@ extern "C" void controller_task(void* argument)
                     button[8 + i] = (Msg_Read(11) >> i) & 0x01;
                 }
                 decode_success_count++;
+                controller_watchdog.feed(500); // 喂狗（正常情况下每20ms一次）
                 Msg_AddReadIndex(RAWDATA_SIZE);
             }
             else
@@ -275,6 +276,21 @@ void softTIM_controller()
         break;
     default:
         break;
+    }
+}
+
+void update_1kHz()
+{
+    if (!controller_watchdog.isFed())
+    {
+        is_controller_connected = false; // 遥控器连接状态
+        joystick_vel.vel_x      = 0.0f;
+        joystick_vel.vel_y      = 0.0f;
+        joystick_vel.vel_wz     = 0.0f;
+    }
+    else
+    {
+        is_controller_connected = true;
     }
 }
 
