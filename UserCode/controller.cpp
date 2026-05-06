@@ -349,9 +349,8 @@ void softTIM_controller()
                 const chassis::Posture target_posture = { .x   = g_auto_align_target_x,
                                                           .y   = g_auto_align_target_y,
                                                           .yaw = g_auto_align_target_yaw };
-                Chassis::Master::TrajectoryLimit limit{}; // 显式零初始化以确保参数有效
                 Chassis::chassis_ctrl_->setTargetPostureInWorld(
-                        target_posture, Chassis::Master::defaultTrajectoryLinkMode, limit);
+                        target_posture, Chassis::Master::defaultTrajectoryLinkMode);
                 g_auto_align_pos_target_sent = true;
             }
         }
