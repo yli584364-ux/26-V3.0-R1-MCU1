@@ -33,7 +33,7 @@ static bool g_vision_filter_inited =
 static float g_target_x_filtered = 0.0f;
 static float g_target_y_filtered = 0.0f;
 
-static inline float ClampFloat(float value, float min_value, float max_value)
+static inline float ClampFloat(float value, float min_value, float max_value)//窗口滤波时使用，限制每周期最大调整量
 {
     return value < min_value ? min_value : (value > max_value ? max_value : value);
 }

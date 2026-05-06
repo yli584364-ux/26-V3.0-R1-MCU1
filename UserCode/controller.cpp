@@ -279,9 +279,13 @@ void ControllerReceive_OnRxCplt()
 
 void softTIM_controller()
 {
-    // 自动对准按键检测（button[9] 用于一键自动对准）
-    bool current_auto_align_button = button[9];
 
+    //button[8]用于触发切换到自动对准
+    bool current_auto_align_button = false; // 从按钮状态中提取第8位作为自动对准触发按钮状态
+    if ((osEventFlagsWait(flags_id, 0x00000008U, osFlagsWaitAny, 0) & 0xFF000008U) == 0x00000008U)
+    {
+        current_auto_align_button = !current_auto_align_button; // 紧急停止按钮按下时反转自动对准按键状态，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
+    }
     if (current_auto_align_button && !g_auto_align_last_button_state)
     {
         // 检测到按键下降沿，切换模式
@@ -308,9 +312,18 @@ void softTIM_controller()
         break;
     case AUTO_AIM:
     {
+        //当某一个摇杆映射大于0.1m/s或者0.1rad/s时，认为是人为干预，立即放弃自动对齐，切换回手动模式
+        if (std::abs(joystick_vel.vel_x) > 0.1f || std::abs(joystick_vel.vel_y) > 0.1f ||
+            std::abs(joystick_vel.vel_wz) > 0.1f)
+        {
+            control_mode = MANUAL;
+            VisionAutoAlign_ResetState();
+                return;
+        }
+
         // 调用自动对准逻辑
-        VisionAutoAlign_RunMode(0U,        // button_status
-                                button[8], // button8_pressed (紧急停止按钮)
+        VisionAutoAlign_RunMode(0U,                         // button_status
+                    ((button >> 8) & 0x1u) != 0u, // button8_pressed (紧急停止按钮)
                                 &g_auto_align_target_x,
                                 &g_auto_align_target_y,
                                 &g_auto_align_target_yaw,
