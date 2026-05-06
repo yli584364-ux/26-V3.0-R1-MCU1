@@ -281,7 +281,7 @@ void ControllerReceive_OnRxCplt()
 void softTIM_controller()
 {
 
-    //button[8]用于触发切换到自动对准
+    //button0x00000008U用于触发切换到自动对准
     if ((osEventFlagsWait(flags_id, 0x00000008U, osFlagsWaitAny, 0) & 0xFF000008U) == 0x00000008U)
     {
                 // 检测到按键下降沿，切换模式
@@ -315,9 +315,9 @@ void softTIM_controller()
                 return;
         }
 
-        // 调用自动对准逻辑
-        VisionAutoAlign_RunMode(0U,                         // button_status
-                                g_emergency_hold_active, //  (紧急停止按钮:未分配)
+        // 调用自动对准逻辑（传入真实按钮状态与紧急停止标志）
+        VisionAutoAlign_RunMode(button,                     // button_status（uint32_t 按键掩码）
+                                g_emergency_hold_active, // button8_pressed（bool 紧急停止标志）
                                 &g_auto_align_target_x,
                                 &g_auto_align_target_y,
                                 &g_auto_align_target_yaw,
@@ -325,14 +325,27 @@ void softTIM_controller()
                                 &g_auto_align_chassis_v,
                                 &g_auto_mode_status);
 
-        // 位置环控制：使用目标位姿
-        const chassis::Posture           target_posture = { .x   = g_auto_align_target_x,
-                                                            .y   = g_auto_align_target_y,
-                                                            .yaw = g_auto_align_target_yaw };
-        Chassis::Master::TrajectoryLimit limit; // 使用默认限制
-        Chassis::chassis_ctrl_->setTargetPostureInWorld(target_posture,
-                                                        Chassis::Master::defaultTrajectoryLinkMode,
-                                                        limit);
+        // 仅在自动对准模式位置环控制下才应用位置控制，否则保持速度控制
+        if (g_auto_align_control_mode == POS_Control)
+        {
+            // 位置环控制：使用目标位姿
+            const chassis::Posture           target_posture = { .x   = g_auto_align_target_x,
+                                                                .y   = g_auto_align_target_y,
+                                                                .yaw = g_auto_align_target_yaw };
+            Chassis::Master::TrajectoryLimit limit{}; // 显式零初始化以确保参数有效
+            Chassis::chassis_ctrl_->setTargetPostureInWorld(target_posture,
+                                                            Chassis::Master::defaultTrajectoryLinkMode,
+                                                            limit);
+        }
+        else
+        {
+            // 速度环控制：直接使用目标速度（转换类型：Chassis_Velocity_t → chassis::Velocity）
+            Chassis::chassis_ctrl_->setVelocityInBody(
+                chassis::Velocity{.vx = g_auto_align_chassis_v.vx,
+                                  .vy = g_auto_align_chassis_v.vy,
+                                  .wz = g_auto_align_chassis_v.wz},
+                false);
+        }
         break;
     }
     default:
