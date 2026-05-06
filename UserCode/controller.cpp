@@ -89,7 +89,8 @@ static float              g_auto_align_target_yaw   = 0.0f;
 static Control_Mode       g_auto_align_control_mode = VEL_Control;
 static Chassis_Velocity_t g_auto_align_chassis_v    = { 0.0f, 0.0f, 0.0f };
 static uint8_t            g_auto_mode_status = 0U; // 自动对准状态：0=未激活, 1=detect, 2=apriltag
-static bool g_auto_align_last_button_state   = false; // 记录上一次按键状态，用于检测按键边界
+
+static bool g_emergency_hold_active = false; // 紧急停止锁止状态
 
 osThreadId_t         controllerHandle;
 const osThreadAttr_t controller_attributes = {
@@ -281,14 +282,9 @@ void softTIM_controller()
 {
 
     //button[8]用于触发切换到自动对准
-    bool current_auto_align_button = false; // 从按钮状态中提取第8位作为自动对准触发按钮状态
     if ((osEventFlagsWait(flags_id, 0x00000008U, osFlagsWaitAny, 0) & 0xFF000008U) == 0x00000008U)
     {
-        current_auto_align_button = !current_auto_align_button; // 紧急停止按钮按下时反转自动对准按键状态，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
-    }
-    if (current_auto_align_button && !g_auto_align_last_button_state)
-    {
-        // 检测到按键下降沿，切换模式
+                // 检测到按键下降沿，切换模式
         if (control_mode == MANUAL)
         {
             control_mode = AUTO_AIM;
@@ -300,8 +296,6 @@ void softTIM_controller()
             VisionAutoAlign_ResetState();
         }
     }
-    g_auto_align_last_button_state = current_auto_align_button;
-
     switch (control_mode)
     {
     case MANUAL:
@@ -323,7 +317,7 @@ void softTIM_controller()
 
         // 调用自动对准逻辑
         VisionAutoAlign_RunMode(0U,                         // button_status
-                    ((button >> 8) & 0x1u) != 0u, // button8_pressed (紧急停止按钮)
+                                g_emergency_hold_active, //  (紧急停止按钮:未分配)
                                 &g_auto_align_target_x,
                                 &g_auto_align_target_y,
                                 &g_auto_align_target_yaw,
