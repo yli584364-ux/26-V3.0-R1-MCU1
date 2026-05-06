@@ -1,44 +1,32 @@
 #include "vision_auto_align.hpp"
+
 #include "vision_receive.hpp"
+
 #include <cmath>
 
-constexpr uint32_t kVisionLostCycleThreshold     = 10U;   // controller_task 10ms周期，约100ms
-constexpr uint32_t kAutoAlignWindowCapacity      = 20U;   // 滤波窗口容量
-constexpr float    kAutoAlignOutlierThresholdM   = 0.05f; // 位置离群值阈值，单位米
-constexpr float    kAutoAlignOutlierThresholdDeg = 2.0f;  // 朝向离群值阈值，单位度
-
-// 滤波系数和限幅值，自动对齐时每周期（10ms）允许的最大调整量，过大可能导致震荡，过小可能导致响应迟钝
-constexpr float kVisionLpfAlpha           = 0.85f;
-constexpr float kVisionMaxStepPerCycleM   = 0.03f;
-constexpr float kVisionMaxStepPerCycleDeg = 12.0f;
-constexpr float kVisionPosDeadbandM       = 0.03f;
-constexpr float kVisionYawLpfAlpha        = 0.60f;
-constexpr float kVisionYawDeadbandDeg     = 0.8f;
-constexpr float kAutoAlignYawLockDeg      = 2.0f;
+namespace VisionAutoAlignConfig = AppConfig::VisionAutoAlign;
 
 static uint32_t g_vision_last_update_seq = 0U;
+static uint32_t g_vision_stale_cycles    = 0U;
 
-static uint32_t g_vision_stale_cycles          = 0U;
 static bool     g_auto_align_pos_executed_once = false;
-static uint32_t g_auto_align_window_count      = 0U; // 窗口中当前有效样本数
+static uint32_t g_auto_align_window_count      = 0U;
 static uint32_t g_auto_align_last_sample_seq   = 0U;
-static float    g_auto_align_window_x          = 0.0f; // 窗口内X坐标累加和
-static float    g_auto_align_window_y          = 0.0f; // 窗口内Y坐标累加和
-static float    g_auto_align_window_yaw        = 0.0f; // 窗口内朝向累加和
-static bool     g_step_cmd_active              = false;
-static bool     g_emergency_hold_active =
-        false; // 紧急停止状态，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
-static bool g_vision_filter_inited =
-        false; // 视觉输入滤波器是否已初始化，未初始化时直接将首个输入作为滤波器初始值
-static float g_target_x_filtered = 0.0f;
-static float g_target_y_filtered = 0.0f;
+static float    g_auto_align_window_x          = 0.0f;
+static float    g_auto_align_window_y          = 0.0f;
+static float    g_auto_align_window_yaw        = 0.0f;
+
+static bool  g_step_cmd_active       = false;
+static bool  g_emergency_hold_active = false;
+static bool  g_vision_filter_inited  = false;
+static float g_target_x_filtered     = 0.0f;
+static float g_target_y_filtered     = 0.0f;
 
 static inline float ClampFloat(float value, float min_value, float max_value)
 {
     return value < min_value ? min_value : (value > max_value ? max_value : value);
 }
 
-// 滤波控制，闭环位置坐标滤波
 static void ApplyVisionTargetFilter(float raw_x, float raw_y, float* out_x, float* out_y)
 {
     if (!out_x || !out_y)
@@ -54,20 +42,20 @@ static void ApplyVisionTargetFilter(float raw_x, float raw_y, float* out_x, floa
     }
 
     const float dx = ClampFloat(raw_x - g_target_x_filtered,
-                                -kVisionMaxStepPerCycleM,
-                                kVisionMaxStepPerCycleM);
+                                -VisionAutoAlignConfig::MaxStepPerCycleM,
+                                VisionAutoAlignConfig::MaxStepPerCycleM);
     const float dy = ClampFloat(raw_y - g_target_y_filtered,
-                                -kVisionMaxStepPerCycleM,
-                                kVisionMaxStepPerCycleM);
+                                -VisionAutoAlignConfig::MaxStepPerCycleM,
+                                VisionAutoAlignConfig::MaxStepPerCycleM);
 
-    g_target_x_filtered += kVisionLpfAlpha * dx;
-    g_target_y_filtered += kVisionLpfAlpha * dy;
+    g_target_x_filtered += VisionAutoAlignConfig::PositionLpfAlpha * dx;
+    g_target_y_filtered += VisionAutoAlignConfig::PositionLpfAlpha * dy;
 
-    if (fabsf(g_target_x_filtered) < kVisionPosDeadbandM)
+    if (fabsf(g_target_x_filtered) < VisionAutoAlignConfig::PositionDeadbandM)
     {
         g_target_x_filtered = 0.0f;
     }
-    if (fabsf(g_target_y_filtered) < kVisionPosDeadbandM)
+    if (fabsf(g_target_y_filtered) < VisionAutoAlignConfig::PositionDeadbandM)
     {
         g_target_y_filtered = 0.0f;
     }
@@ -76,7 +64,6 @@ static void ApplyVisionTargetFilter(float raw_x, float raw_y, float* out_x, floa
     *out_y = g_target_y_filtered;
 }
 
-// 滤波控制，闭环朝向滤波
 static void ApplyYawTargetFilter(float raw_yaw, float* yaw)
 {
     if (!yaw)
@@ -84,11 +71,12 @@ static void ApplyYawTargetFilter(float raw_yaw, float* yaw)
         return;
     }
 
-    const float dyaw =
-            ClampFloat(raw_yaw - *yaw, -kVisionMaxStepPerCycleDeg, kVisionMaxStepPerCycleDeg);
-    float yaw_output = *yaw + kVisionYawLpfAlpha * dyaw;
+    const float dyaw = ClampFloat(raw_yaw - *yaw,
+                                  -VisionAutoAlignConfig::MaxStepPerCycleDeg,
+                                  VisionAutoAlignConfig::MaxStepPerCycleDeg);
+    float yaw_output = *yaw + VisionAutoAlignConfig::YawLpfAlpha * dyaw;
 
-    if (fabsf(yaw_output) < kVisionYawDeadbandDeg)
+    if (fabsf(yaw_output) < VisionAutoAlignConfig::YawDeadbandDeg)
     {
         yaw_output = 0.0f;
     }
@@ -96,7 +84,6 @@ static void ApplyYawTargetFilter(float raw_yaw, float* yaw)
     *yaw = yaw_output;
 }
 
-// 监测紧急停止按键，触发后立即停止底盘并禁止自动对齐流程，直到手动重置
 static void AbortAutoAlignAndStop(float*              target_x,
                                   float*              target_y,
                                   float*              target_yaw,
@@ -143,7 +130,6 @@ void VisionAutoAlign_OnModeEnter(void)
     VisionAutoAlign_ResetState();
 }
 
-// 应用视觉对齐坐标
 static bool VisionAutoAlign_Apply(float*              target_x,
                                   float*              target_y,
                                   float*              target_yaw,
@@ -167,9 +153,10 @@ static bool VisionAutoAlign_Apply(float*              target_x,
 
     const uint32_t apriltag_seq = lr_apriltag_update_seq;
     const uint32_t detect_seq   = lr_detect_update_seq;
-    const uint32_t latest_seq   = (apriltag_seq >= detect_seq) ? apriltag_seq : detect_seq;
-    const int      has_apriltag = (apriltag_seq > 0U);
-    const int      has_detect   = (detect_seq > 0U);
+    const uint32_t latest_seq   = apriltag_seq >= detect_seq ? apriltag_seq : detect_seq;
+    const bool     has_apriltag = apriltag_seq > 0U;
+    const bool     has_detect   = detect_seq > 0U;
+
     if (!has_apriltag && !has_detect)
     {
         *auto_mode = 0;
@@ -187,16 +174,16 @@ static bool VisionAutoAlign_Apply(float*              target_x,
         {
             g_vision_stale_cycles++;
         }
-        if (g_vision_stale_cycles > kVisionLostCycleThreshold)
+        if (g_vision_stale_cycles > VisionAutoAlignConfig::LostCycleThreshold)
         {
             *auto_mode = 0;
             return false;
         }
     }
 
-    const int use_apriltag = has_apriltag && (!has_detect || (apriltag_seq >= detect_seq));
-    *auto_mode             = use_apriltag ? 2 : 1; // 2=apriltag, 1=detect
-    g_step_cmd_active      = false;
+    const bool use_apriltag = has_apriltag && (!has_detect || (apriltag_seq >= detect_seq));
+    *auto_mode              = use_apriltag ? 2U : 1U;
+    g_step_cmd_active       = false;
 
     if (latest_seq == g_auto_align_last_sample_seq)
     {
@@ -225,7 +212,6 @@ static bool VisionAutoAlign_Apply(float*              target_x,
     ApplyVisionTargetFilter(sample_target_x, sample_target_y, &sample_target_x, &sample_target_y);
     ApplyYawTargetFilter(sample_target_yaw, &sample_target_yaw);
 
-    // 窗口滤波：检查新样本是否为离群值
     if (g_auto_align_window_count > 0U)
     {
         const float window_avg_x   = g_auto_align_window_x / (float)g_auto_align_window_count;
@@ -237,36 +223,33 @@ static bool VisionAutoAlign_Apply(float*              target_x,
         const float delta_yaw = fabsf(sample_target_yaw - window_avg_yaw);
         const float delta_pos = sqrtf(delta_x * delta_x + delta_y * delta_y);
 
-        // 如果位置或朝向偏差过大则舍弃该样本
-        if (delta_pos > kAutoAlignOutlierThresholdM || delta_yaw > kAutoAlignOutlierThresholdDeg)
+        if (delta_pos > VisionAutoAlignConfig::OutlierThresholdM ||
+            delta_yaw > VisionAutoAlignConfig::OutlierThresholdDeg)
         {
-            return true; // 舍弃离群值，继续等待下一个样本
+            return true;
         }
     }
 
-    // 样本有效，加入窗口
     g_auto_align_window_x += sample_target_x;
     g_auto_align_window_y += sample_target_y;
     g_auto_align_window_yaw += sample_target_yaw;
     g_auto_align_window_count++;
 
-    if (g_auto_align_window_count < kAutoAlignWindowCapacity)
+    if (g_auto_align_window_count < VisionAutoAlignConfig::WindowCapacity)
     {
         return true;
     }
 
-    // 窗口满，计算平均值并应用
-    const float inv_count          = 1.0f / (float)g_auto_align_window_count;
-    *target_x                      = g_auto_align_window_x * inv_count;
-    *target_y                      = g_auto_align_window_y * inv_count;
-    *target_yaw                    = g_auto_align_window_yaw * inv_count;
-    *chassis_control_mode          = POS_Control;
+    const float inv_count = 1.0f / (float)g_auto_align_window_count;
+    *target_x             = g_auto_align_window_x * inv_count;
+    *target_y             = g_auto_align_window_y * inv_count;
+    *target_yaw           = g_auto_align_window_yaw * inv_count;
+    *chassis_control_mode = POS_Control;
     g_auto_align_pos_executed_once = true;
 
     return true;
 }
 
-// 自动对齐遥控模式下的总逻辑流程，后续可以对应到按键进行更改
 void VisionAutoAlign_RunMode(uint32_t            button_status,
                              bool                button8_pressed,
                              float*              target_x,
@@ -283,7 +266,6 @@ void VisionAutoAlign_RunMode(uint32_t            button_status,
 
     if (button8_pressed || ((button_status & (1U << 8)) != 0U))
     {
-        // 按下或触发按钮8都立即锁止，且按住期间持续锁止。
         g_emergency_hold_active = true;
     }
 
@@ -293,7 +275,6 @@ void VisionAutoAlign_RunMode(uint32_t            button_status,
                 target_x, target_y, target_yaw, chassis_control_mode, chassis_v, auto_mode);
         if (!button8_pressed)
         {
-            // 释放后退出锁止态，避免永久占用自动对齐流程。
             g_emergency_hold_active = false;
         }
     }

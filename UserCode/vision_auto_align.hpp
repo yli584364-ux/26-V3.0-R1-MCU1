@@ -1,23 +1,22 @@
 #ifndef __VISION_AUTO_ALIGN_HPP__
 #define __VISION_AUTO_ALIGN_HPP__
 
-#include <stdbool.h>
-#include <stdint.h>
 #include "chassis.hpp"
 
-// 自动对准控制模式
+#include <stdbool.h>
+#include <stdint.h>
+
 enum Control_Mode
 {
-    VEL_Control = 0, // 速度控制模式
-    POS_Control = 1  // 位置控制模式
+    VEL_Control = 0,
+    POS_Control = 1
 };
 
-// 底盘速度结构体
 struct Chassis_Velocity_t
 {
-    float vx; // 前进方向速度 (m/s)
-    float vy; // 左侧方向速度 (m/s)
-    float wz; // 旋转角速度 (deg/s)
+    float vx;
+    float vy;
+    float wz;
 };
 
 void VisionAutoAlign_OnModeEnter(void);

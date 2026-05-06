@@ -2,6 +2,7 @@
 #define _CHASSIS_H_
 
 #include "Steering4.hpp"
+#include "config.hpp"
 #include "motor_pos_controller.hpp"
 #include "motor_vel_controller.hpp"
 #include "gpio_driver.h"
@@ -23,24 +24,14 @@ using chassis::motion::Steering4;
 using controllers::MotorPosController;
 using controllers::MotorVelController;
 
-#define GPIO_FRONT (GPIO_t{ GPIOB, GPIO_PIN_0 })
-#define GPIO_LEFT  (GPIO_t{ GPIOB, GPIO_PIN_1 })
-#define GPIO_REAR  (GPIO_t{ GPIOA, GPIO_PIN_7 })
-#define GPIO_RIGHT (GPIO_t{ GPIOA, GPIO_PIN_6 })
-
-// #define GPIO_FRONT (GPIO_t{GPIOA, GPIO_PIN_0})
-// #define GPIO_LEFT  (GPIO_t{GPIOA, GPIO_PIN_1})
-// #define GPIO_REAR  (GPIO_t{GPIOA, GPIO_PIN_2})
-// #define GPIO_RIGHT (GPIO_t{GPIOA, GPIO_PIN_3})
-
 struct ChassisConfig
 {
-    static constexpr float MIDDLE_VEL = 1.0f;   // 遥控器摇杆数据转换后中位速度值，单位m/s
-    static constexpr float MAX_VEL    = 8.0f;   // 遥控器摇杆数据转换后最大速度值，单位m/s
-    static constexpr float MIDDLE_WZ  = 90.0f;  // 遥控器摇杆数据转换后中位角速度值，单位deg/s
-    static constexpr float MAX_WZ     = 360.0f; // 遥控器摇杆数据转换后最大角速度值，单位deg/s
-    static constexpr float JOYSTICK_RAW_MIDDLE = 600.0f;
-    static constexpr float JOYSTICK_RAW_MAX    = 1600.0f;
+    static constexpr float MIDDLE_VEL          = AppConfig::Chassis::MiddleVel;
+    static constexpr float MAX_VEL             = AppConfig::Chassis::MaxVel;
+    static constexpr float MIDDLE_WZ           = AppConfig::Chassis::MiddleWz;
+    static constexpr float MAX_WZ              = AppConfig::Chassis::MaxWz;
+    static constexpr float JOYSTICK_RAW_MIDDLE = AppConfig::Chassis::JoystickRawMiddle;
+    static constexpr float JOYSTICK_RAW_MAX    = AppConfig::Chassis::JoystickRawMax;
 };
 
 inline Steering4*   chassis_;
