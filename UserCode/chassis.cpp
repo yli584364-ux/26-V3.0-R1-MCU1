@@ -8,19 +8,12 @@ namespace Chassis
 {
 
 using controllers::ControlMode;
-
-static PIDMotor::Config motor_wheeldir_velpid = {
-    .Kp = 500.0f, .Ki = 0.1f, .Kd = 0.0f, .abs_output_max = 8000
-};
-
-static PIDMotor::Config motor_wheeldir_pospid = {
-    .Kp = 2.0f, .Ki = 0.0f, .Kd = 0.2f, .abs_output_max = 400
-};
+namespace ProjectChassisConfig = AppConfig::Chassis;
 
 MotorVelController* motor_wheelspeed_velctrl[4] = { nullptr };
 MotorPosController* motor_wheeldir_posctrl[4]   = { nullptr };
 MotorVelController* motor_wheeldir_velctrl[4]   = { nullptr };
-// 初始化一个底盘
+
 static void motion_init()
 {
     for (size_t i = 0; i < 4; i++)
@@ -28,37 +21,40 @@ static void motion_init()
         motor_wheeldir_posctrl[i] =
                 new MotorPosController(Device::motor::motor_wheel_dir[i],
                                        {
-                                               .position_pid       = motor_wheeldir_pospid,
-                                               .velocity_pid       = motor_wheeldir_velpid,
+                                               .position_pid =
+                                                       ProjectChassisConfig::WheelDirPositionPid,
+                                               .velocity_pid =
+                                                       ProjectChassisConfig::WheelDirVelocityPid,
                                                .pos_vel_freq_ratio = 10,
                                        });
-        motor_wheeldir_velctrl[i]   = new MotorVelController(Device::motor::motor_wheel_dir[i],
-                                                             { .pid = motor_wheeldir_velpid });
+        motor_wheeldir_velctrl[i]   = new MotorVelController(
+                Device::motor::motor_wheel_dir[i],
+                { .pid = ProjectChassisConfig::WheelDirVelocityPid });
         motor_wheelspeed_velctrl[i] = new MotorVelController(
                 Device::motor::motor_wheel_speed[i],
                 { .ctrl_mode = ControlMode::InternalVel, .internal_set_ratio = 50 });
     }
+
     chassis_ = new Steering4(Steering4::Config{
             .enable_calibration = true,
-            .radius             = 45.0f,
-            .distance_x         = 619.8f,
-            .distance_y         = 580.0f,
+            .radius             = ProjectChassisConfig::Radius,
+            .distance_x         = ProjectChassisConfig::DistanceX,
+            .distance_y         = ProjectChassisConfig::DistanceY,
             .wheel_front_right =
                     {
                             .cfg =
                                     {
                                             .drive_motor  = motor_wheelspeed_velctrl[1],
                                             .steer_motor  = motor_wheeldir_posctrl[0],
-                                            .steer_offset = 135.0f,
-
+                                            .steer_offset = ProjectChassisConfig::FrontRightSteerAngle,
                                     },
                             .calib_cfg =
                                     {
-                                            .steer_motor            = motor_wheeldir_velctrl[0],
-                                            .photogate              = GPIO_FRONT,
-                                            .photogate_active_state = GPIO_PIN_SET,
+                                            .steer_motor = motor_wheeldir_velctrl[0],
+                                            .photogate   = ProjectChassisConfig::FrontPhotogate,
+                                            .photogate_active_state =
+                                                    ProjectChassisConfig::PhotogateActiveState,
                                     },
-
                     },
             .wheel_front_left =
                     {
@@ -66,13 +62,14 @@ static void motion_init()
                                     {
                                             .drive_motor  = motor_wheelspeed_velctrl[2],
                                             .steer_motor  = motor_wheeldir_posctrl[1],
-                                            .steer_offset = -45.0f,
+                                            .steer_offset = ProjectChassisConfig::FrontLeftSteerAngle,
                                     },
                             .calib_cfg =
                                     {
-                                            .steer_motor            = motor_wheeldir_velctrl[1],
-                                            .photogate              = GPIO_LEFT,
-                                            .photogate_active_state = GPIO_PIN_SET,
+                                            .steer_motor = motor_wheeldir_velctrl[1],
+                                            .photogate   = ProjectChassisConfig::LeftPhotogate,
+                                            .photogate_active_state =
+                                                    ProjectChassisConfig::PhotogateActiveState,
                                     },
                     },
             .wheel_rear_left =
@@ -81,14 +78,14 @@ static void motion_init()
                                     {
                                             .drive_motor  = motor_wheelspeed_velctrl[0],
                                             .steer_motor  = motor_wheeldir_posctrl[2],
-                                            .steer_offset = 135.0f,
+                                            .steer_offset = ProjectChassisConfig::RearLeftSteerAngle,
                                     },
                             .calib_cfg =
                                     {
-                                            .steer_motor            = motor_wheeldir_velctrl[2],
-                                            .photogate              = GPIO_REAR,
-                                            .photogate_active_state = GPIO_PIN_SET,
-
+                                            .steer_motor = motor_wheeldir_velctrl[2],
+                                            .photogate   = ProjectChassisConfig::RearPhotogate,
+                                            .photogate_active_state =
+                                                    ProjectChassisConfig::PhotogateActiveState,
                                     },
                     },
             .wheel_rear_right =
@@ -97,16 +94,16 @@ static void motion_init()
                                     {
                                             .drive_motor  = motor_wheelspeed_velctrl[3],
                                             .steer_motor  = motor_wheeldir_posctrl[3],
-                                            .steer_offset = 135.0f,
+                                            .steer_offset = ProjectChassisConfig::RearRightSteerAngle,
                                     },
                             .calib_cfg =
                                     {
-                                            .steer_motor            = motor_wheeldir_velctrl[3],
-                                            .photogate              = GPIO_RIGHT,
-                                            .photogate_active_state = GPIO_PIN_SET,
+                                            .steer_motor = motor_wheeldir_velctrl[3],
+                                            .photogate   = ProjectChassisConfig::RightPhotogate,
+                                            .photogate_active_state =
+                                                    ProjectChassisConfig::PhotogateActiveState,
                                     },
                     },
-
     });
 }
 
@@ -117,29 +114,20 @@ static void loc_init()
 
 static void controller_init()
 {
-    chassis_ctrl_ =
-            new Master(*chassis_,
-                       *chassis_loc_,
-                       {.posture_error_pd_cfg =
-                                {
-                                        .vx = {.Kp = 5.0f, .Kd = 3.0f, .abs_output_max = 0.1f},
-                                        .vy = {.Kp = 5.0f, .Kd = 3.0f, .abs_output_max = 0.1f},
-                                        .wz = {.Kp = 30.0f, .Kd = 4.0f, .abs_output_max = 25.0f},
-                                },
-                        .limit = {.x   = {.max_spd = 1.0f, .max_acc = 1.2f, .max_jerk = 20.0f},
-                                  .y   = {.max_spd = 1.0f, .max_acc = 1.2f, .max_jerk = 20.0f},
-                                  .yaw = {.max_spd = 90.0f, .max_acc = 45.0f, .max_jerk = 90.0f}}});
+    chassis_ctrl_ = new Master(*chassis_, *chassis_loc_, ProjectChassisConfig::ControllerCfg);
 }
 
 void app_chassis_init()
 {
-    motion_init(); // 底盘启动
+    motion_init();
 }
+
 void ctrl_init()
 {
-    loc_init();        // 定位启动
-    controller_init(); // 底盘控制器启动
+    loc_init();
+    controller_init();
 }
+
 void update_1kHz()
 {
     if (chassis_loc_)
