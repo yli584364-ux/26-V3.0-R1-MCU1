@@ -90,19 +90,19 @@ static Control_Mode       g_auto_align_control_mode = VEL_Control;
 static Chassis_Velocity_t g_auto_align_chassis_v    = { 0.0f, 0.0f, 0.0f };
 static uint8_t            g_auto_mode_status = 0U; // 自动对准状态：0=未激活, 1=detect, 2=apriltag
 
-static bool g_emergency_hold_active = false; // 紧急停止锁止状态
+static bool g_emergency_hold_active      = false; // 紧急停止锁止状态
 static bool g_auto_align_pos_target_sent = false;
 
 static void ResetAutoAlignControlOutput()
 {
-    g_auto_align_target_x          = 0.0f;
-    g_auto_align_target_y          = 0.0f;
-    g_auto_align_target_yaw        = 0.0f;
-    g_auto_align_control_mode      = VEL_Control;
-    g_auto_align_chassis_v         = { 0.0f, 0.0f, 0.0f };
-    g_auto_mode_status             = 0U;
-    g_auto_align_pos_target_sent   = false;
-    g_emergency_hold_active        = false;
+    g_auto_align_target_x        = 0.0f;
+    g_auto_align_target_y        = 0.0f;
+    g_auto_align_target_yaw      = 0.0f;
+    g_auto_align_control_mode    = VEL_Control;
+    g_auto_align_chassis_v       = { 0.0f, 0.0f, 0.0f };
+    g_auto_mode_status           = 0U;
+    g_auto_align_pos_target_sent = false;
+    g_emergency_hold_active      = false;
 }
 
 osThreadId_t         controllerHandle;
@@ -251,13 +251,13 @@ extern "C" void controller_task(void* argument)
                 joystick_vel.vel_wz = -1.0f * Joystick2Wz(RY);
 
                 // 解析拨码开关数据
-                DIP_switch            = Msg_Read(10);
-                uint16_t curr_buttons = (static_cast<uint16_t>(Msg_Read(11)) << 8) |
-                                        Msg_Read(12); // 目前按钮状态
+                DIP_switch               = Msg_Read(10);
+                uint16_t curr_buttons    = (static_cast<uint16_t>(Msg_Read(11)) << 8) |
+                                           Msg_Read(12); // 目前按钮状态
                 uint16_t falling_buttons = static_cast<uint16_t>(
                         prev_buttons & ~curr_buttons); // 按钮抬起时才会触发
-                button = static_cast<uint32_t>(curr_buttons) |
-                         (static_cast<uint32_t>(DIP_switch) << 16);
+                button               = static_cast<uint32_t>(curr_buttons) |
+                                       (static_cast<uint32_t>(DIP_switch) << 16);
                 uint32_t event_flags = static_cast<uint32_t>(falling_buttons) |
                                        (static_cast<uint32_t>(DIP_switch) << 16);
                 osEventFlagsSet(flags_id, event_flags);
@@ -293,11 +293,10 @@ void ControllerReceive_OnRxCplt()
 
 void softTIM_controller()
 {
-
-    //button0x00000008U用于触发切换到自动对准
+    // button0x00000008U用于触发切换到自动对准
     if ((osEventFlagsWait(flags_id, 0x00000008U, osFlagsWaitAny, 0) & 0xFF000008U) == 0x00000008U)
     {
-                // 检测到按键下降沿，切换模式
+        // 检测到按键下降沿，切换模式
         if (control_mode == MANUAL)
         {
             control_mode = AUTO_AIM;
@@ -321,7 +320,7 @@ void softTIM_controller()
         break;
     case AUTO_AIM:
     {
-        //当某一个摇杆映射大于0.1m/s或者0.1rad/s时，认为是人为干预，立即放弃自动对齐，切换回手动模式
+        // 当某一个摇杆映射大于0.1m/s或者0.1rad/s时，认为是人为干预，立即放弃自动对齐，切换回手动模式
         if (std::abs(joystick_vel.vel_x) > 0.1f || std::abs(joystick_vel.vel_y) > 0.1f ||
             std::abs(joystick_vel.vel_wz) > 0.1f)
         {
@@ -332,7 +331,7 @@ void softTIM_controller()
         }
 
         // 调用自动对准逻辑（传入真实按钮状态与紧急停止标志）
-        VisionAutoAlign_RunMode(button,                     // button_status（uint32_t 按键掩码）
+        VisionAutoAlign_RunMode(button,                  // button_status（uint32_t 按键掩码）
                                 g_emergency_hold_active, // button8_pressed（bool 紧急停止标志）
                                 &g_auto_align_target_x,
                                 &g_auto_align_target_y,
@@ -347,13 +346,12 @@ void softTIM_controller()
             // 位置目标只下发一次，后续由 Master 的 profile/error 快环推进和跟踪。
             if (!g_auto_align_pos_target_sent)
             {
-                const chassis::Posture           target_posture = { .x   = g_auto_align_target_x,
-                                                                    .y   = g_auto_align_target_y,
-                                                                    .yaw = g_auto_align_target_yaw };
+                const chassis::Posture target_posture = { .x   = g_auto_align_target_x,
+                                                          .y   = g_auto_align_target_y,
+                                                          .yaw = g_auto_align_target_yaw };
                 Chassis::Master::TrajectoryLimit limit{}; // 显式零初始化以确保参数有效
-                Chassis::chassis_ctrl_->setTargetPostureInWorld(target_posture,
-                                                                Chassis::Master::defaultTrajectoryLinkMode,
-                                                                limit);
+                Chassis::chassis_ctrl_->setTargetPostureInWorld(
+                        target_posture, Chassis::Master::defaultTrajectoryLinkMode, limit);
                 g_auto_align_pos_target_sent = true;
             }
         }
@@ -362,10 +360,10 @@ void softTIM_controller()
             g_auto_align_pos_target_sent = false;
             // 速度环控制：直接使用目标速度（转换类型：Chassis_Velocity_t → chassis::Velocity）
             Chassis::chassis_ctrl_->setVelocityInBody(
-                chassis::Velocity{.vx = g_auto_align_chassis_v.vx,
-                                  .vy = g_auto_align_chassis_v.vy,
-                                  .wz = g_auto_align_chassis_v.wz},
-                false);
+                    chassis::Velocity{ .vx = g_auto_align_chassis_v.vx,
+                                       .vy = g_auto_align_chassis_v.vy,
+                                       .wz = g_auto_align_chassis_v.wz },
+                    false);
         }
         break;
     }
