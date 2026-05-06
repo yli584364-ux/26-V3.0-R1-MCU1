@@ -34,7 +34,9 @@ static bool g_vision_filter_inited =
 static float g_target_x_filtered = 0.0f;
 static float g_target_y_filtered = 0.0f;
 
-static inline float ClampFloat(float value, float min_value, float max_value)
+static inline float ClampFloat(float value,
+                               float min_value,
+                               float max_value) // 窗口滤波时使用，限制每周期最大调整量
 {
     return value < min_value ? min_value : (value > max_value ? max_value : value);
 }
@@ -269,7 +271,7 @@ static bool VisionAutoAlign_Apply(float*              target_x,
 
 // 自动对齐遥控模式下的总逻辑流程，后续可以对应到按键进行更改
 void VisionAutoAlign_RunMode(uint32_t            button_status,
-                             bool                button8_pressed,
+                             bool                button_pressed,
                              float*              target_x,
                              float*              target_y,
                              float*              target_yaw,
@@ -282,7 +284,7 @@ void VisionAutoAlign_RunMode(uint32_t            button_status,
         return;
     }
 
-    if (button8_pressed || ((button_status & (1U << 8)) != 0U))
+    if (button_pressed || ((button_status & (1U << 8)) != 0U))
     {
         // 按下或触发按钮8都立即锁止，且按住期间持续锁止。
         g_emergency_hold_active = true;
@@ -292,7 +294,7 @@ void VisionAutoAlign_RunMode(uint32_t            button_status,
     {
         AbortAutoAlignAndStop(
                 target_x, target_y, target_yaw, chassis_control_mode, chassis_v, auto_mode);
-        if (!button8_pressed)
+        if (!button_pressed)
         {
             // 释放后退出锁止态，避免永久占用自动对齐流程。
             g_emergency_hold_active = false;
