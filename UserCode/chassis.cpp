@@ -142,12 +142,24 @@ void ctrl_init()
 }
 void update_1kHz()
 {
+    static uint8_t profile_update_divider = 0;
+
+    if (chassis_)
+        chassis_->update();
+
     if (chassis_loc_)
         chassis_loc_->update(0.001f);
-    if (chassis_ctrl_)
-        chassis_ctrl_->controllerUpdate();
 
-    chassis_->update();
+    if (chassis_ctrl_)
+    {
+        if (++profile_update_divider >= 10U)
+        {
+            profile_update_divider = 0U;
+            chassis_ctrl_->profileUpdate(0.01f);
+        }
+        chassis_ctrl_->errorUpdate();
+        chassis_ctrl_->controllerUpdate();
+    }
 }
 
 } // namespace Chassis

@@ -91,6 +91,19 @@ static Chassis_Velocity_t g_auto_align_chassis_v    = { 0.0f, 0.0f, 0.0f };
 static uint8_t            g_auto_mode_status = 0U; // 自动对准状态：0=未激活, 1=detect, 2=apriltag
 
 static bool g_emergency_hold_active = false; // 紧急停止锁止状态
+static bool g_auto_align_pos_target_sent = false;
+
+static void ResetAutoAlignControlOutput()
+{
+    g_auto_align_target_x          = 0.0f;
+    g_auto_align_target_y          = 0.0f;
+    g_auto_align_target_yaw        = 0.0f;
+    g_auto_align_control_mode      = VEL_Control;
+    g_auto_align_chassis_v         = { 0.0f, 0.0f, 0.0f };
+    g_auto_mode_status             = 0U;
+    g_auto_align_pos_target_sent   = false;
+    g_emergency_hold_active        = false;
+}
 
 osThreadId_t         controllerHandle;
 const osThreadAttr_t controller_attributes = {
@@ -289,11 +302,13 @@ void softTIM_controller()
         {
             control_mode = AUTO_AIM;
             VisionAutoAlign_OnModeEnter();
+            ResetAutoAlignControlOutput();
         }
         else if (control_mode == AUTO_AIM)
         {
             control_mode = MANUAL;
             VisionAutoAlign_ResetState();
+            ResetAutoAlignControlOutput();
         }
     }
     switch (control_mode)
@@ -312,7 +327,8 @@ void softTIM_controller()
         {
             control_mode = MANUAL;
             VisionAutoAlign_ResetState();
-                return;
+            ResetAutoAlignControlOutput();
+            return;
         }
 
         // 调用自动对准逻辑（传入真实按钮状态与紧急停止标志）
@@ -328,17 +344,22 @@ void softTIM_controller()
         // 仅在自动对准模式位置环控制下才应用位置控制，否则保持速度控制
         if (g_auto_align_control_mode == POS_Control)
         {
-            // 位置环控制：使用目标位姿
-            const chassis::Posture           target_posture = { .x   = g_auto_align_target_x,
-                                                                .y   = g_auto_align_target_y,
-                                                                .yaw = g_auto_align_target_yaw };
-            Chassis::Master::TrajectoryLimit limit{}; // 显式零初始化以确保参数有效
-            Chassis::chassis_ctrl_->setTargetPostureInWorld(target_posture,
-                                                            Chassis::Master::defaultTrajectoryLinkMode,
-                                                            limit);
+            // 位置目标只下发一次，后续由 Master 的 profile/error 快环推进和跟踪。
+            if (!g_auto_align_pos_target_sent)
+            {
+                const chassis::Posture           target_posture = { .x   = g_auto_align_target_x,
+                                                                    .y   = g_auto_align_target_y,
+                                                                    .yaw = g_auto_align_target_yaw };
+                Chassis::Master::TrajectoryLimit limit{}; // 显式零初始化以确保参数有效
+                Chassis::chassis_ctrl_->setTargetPostureInWorld(target_posture,
+                                                                Chassis::Master::defaultTrajectoryLinkMode,
+                                                                limit);
+                g_auto_align_pos_target_sent = true;
+            }
         }
         else
         {
+            g_auto_align_pos_target_sent = false;
             // 速度环控制：直接使用目标速度（转换类型：Chassis_Velocity_t → chassis::Velocity）
             Chassis::chassis_ctrl_->setVelocityInBody(
                 chassis::Velocity{.vx = g_auto_align_chassis_v.vx,
