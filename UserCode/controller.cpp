@@ -6,6 +6,7 @@
 #include "watchdog.hpp"
 
 #include <cstdlib>
+#include "vision_auto_align.hpp"
 #include <cstdint>
 #include <string.h>
 
@@ -218,6 +219,7 @@ extern "C" void controller_task(void* argument)
             const uint8_t received_crc = Msg_Read(13);
 
             if (calculate_crc == received_crc)
+
             {
                 LX = (int16_t)((Msg_Read(2) << 8) | Msg_Read(3));
                 LY = (int16_t)((Msg_Read(4) << 8) | Msg_Read(5));
