@@ -6,6 +6,7 @@
 #include "watchdog.hpp"
 
 #include <cstdlib>
+#include "vision_auto_align.hpp"
 #include <cstdint>
 #include <string.h>
 
@@ -46,8 +47,22 @@ static float              g_auto_align_target_y     = 0.0f;
 static float              g_auto_align_target_yaw   = 0.0f;
 static Control_Mode       g_auto_align_control_mode = VEL_Control;
 static Chassis_Velocity_t g_auto_align_chassis_v    = { 0.0f, 0.0f, 0.0f };
-static uint8_t            g_auto_mode_status        = 0U;
-static bool               g_auto_align_last_button_state = false;
+static uint8_t            g_auto_mode_status = 0U; // 自动对准状态：0=未激活, 1=detect, 2=apriltag
+
+static bool g_emergency_hold_active      = false; // 紧急停止锁止状态
+static bool g_auto_align_pos_target_sent = false;
+
+static void ResetAutoAlignControlOutput()
+{
+    g_auto_align_target_x        = 0.0f;
+    g_auto_align_target_y        = 0.0f;
+    g_auto_align_target_yaw      = 0.0f;
+    g_auto_align_control_mode    = VEL_Control;
+    g_auto_align_chassis_v       = { 0.0f, 0.0f, 0.0f };
+    g_auto_mode_status           = 0U;
+    g_auto_align_pos_target_sent = false;
+    g_emergency_hold_active      = false;
+}
 
 osThreadId_t         controllerHandle;
 const osThreadAttr_t controller_attributes = {
@@ -204,6 +219,7 @@ extern "C" void controller_task(void* argument)
             const uint8_t received_crc = Msg_Read(13);
 
             if (calculate_crc == received_crc)
+
             {
                 LX = (int16_t)((Msg_Read(2) << 8) | Msg_Read(3));
                 LY = (int16_t)((Msg_Read(4) << 8) | Msg_Read(5));
@@ -214,16 +230,16 @@ extern "C" void controller_task(void* argument)
                 joystick_vel.vel_x  = Joystick2Velocity(LX);
                 joystick_vel.vel_wz = -1.0f * Joystick2Wz(RY);
 
-                DIP_switch = Msg_Read(10);
-                const uint16_t curr_buttons =
-                        (uint16_t)((static_cast<uint16_t>(Msg_Read(11)) << 8) | Msg_Read(12));
-                const uint16_t falling_buttons = (uint16_t)(prev_buttons & ~curr_buttons);
-
-                button = static_cast<uint32_t>(curr_buttons) |
-                         (static_cast<uint32_t>(DIP_switch) << 16);
-                const uint32_t event_flags =
-                        static_cast<uint32_t>(falling_buttons) |
-                        (static_cast<uint32_t>(DIP_switch) << 16);
+                // 解析拨码开关数据
+                DIP_switch               = Msg_Read(10);
+                uint16_t curr_buttons    = (static_cast<uint16_t>(Msg_Read(11)) << 8) |
+                                           Msg_Read(12); // 目前按钮状态
+                uint16_t falling_buttons = static_cast<uint16_t>(
+                        prev_buttons & ~curr_buttons); // 按钮抬起时才会触发
+                button               = static_cast<uint32_t>(curr_buttons) |
+                                       (static_cast<uint32_t>(DIP_switch) << 16);
+                uint32_t event_flags = static_cast<uint32_t>(falling_buttons) |
+                                       (static_cast<uint32_t>(DIP_switch) << 16);
                 osEventFlagsSet(flags_id, event_flags);
                 prev_buttons = curr_buttons;
 
@@ -257,23 +273,22 @@ void ControllerReceive_OnRxCplt()
 
 void softTIM_controller()
 {
-    const bool current_auto_align_button = IsButtonPressed(9);
-
-    if (current_auto_align_button && !g_auto_align_last_button_state)
+    // button0x00000008U用于触发切换到自动对准
+    if ((osEventFlagsWait(flags_id, 0x00000008U, osFlagsWaitAny, 0) & 0xFF000008U) == 0x00000008U)
     {
         if (control_mode == MANUAL)
         {
             control_mode = AUTO_AIM;
             VisionAutoAlign_OnModeEnter();
+            ResetAutoAlignControlOutput();
         }
         else if (control_mode == AUTO_AIM)
         {
             control_mode = MANUAL;
             VisionAutoAlign_ResetState();
+            ResetAutoAlignControlOutput();
         }
     }
-    g_auto_align_last_button_state = current_auto_align_button;
-
     switch (control_mode)
     {
     case MANUAL:
@@ -285,8 +300,19 @@ void softTIM_controller()
 
     case AUTO_AIM:
     {
-        VisionAutoAlign_RunMode(0U,
-                                IsButtonPressed(8),
+        // 当某一个摇杆映射大于0.1m/s或者0.1rad/s时，认为是人为干预，立即放弃自动对齐，切换回手动模式
+        if (std::abs(joystick_vel.vel_x) > 0.1f || std::abs(joystick_vel.vel_y) > 0.1f ||
+            std::abs(joystick_vel.vel_wz) > 0.1f)
+        {
+            control_mode = MANUAL;
+            VisionAutoAlign_ResetState();
+            ResetAutoAlignControlOutput();
+            return;
+        }
+
+        // 调用自动对准逻辑（传入真实按钮状态与紧急停止标志）
+        VisionAutoAlign_RunMode(button,                  // button_status（uint32_t 按键掩码）
+                                g_emergency_hold_active, // button8_pressed（bool 紧急停止标志）
                                 &g_auto_align_target_x,
                                 &g_auto_align_target_y,
                                 &g_auto_align_target_yaw,
@@ -294,14 +320,30 @@ void softTIM_controller()
                                 &g_auto_align_chassis_v,
                                 &g_auto_mode_status);
 
-        const chassis::Posture target_posture = {
-            .x   = g_auto_align_target_x,
-            .y   = g_auto_align_target_y,
-            .yaw = g_auto_align_target_yaw,
-        };
-        Chassis::Master::TrajectoryLimit limit{};
-        Chassis::chassis_ctrl_->setTargetPostureInWorld(
-                target_posture, Chassis::Master::defaultTrajectoryLinkMode, limit);
+        // 仅在自动对准模式位置环控制下才应用位置控制，否则保持速度控制
+        if (g_auto_align_control_mode == POS_Control)
+        {
+            // 位置目标只下发一次，后续由 Master 的 profile/error 快环推进和跟踪。
+            if (!g_auto_align_pos_target_sent)
+            {
+                const chassis::Posture target_posture = { .x   = g_auto_align_target_x,
+                                                          .y   = g_auto_align_target_y,
+                                                          .yaw = g_auto_align_target_yaw };
+                Chassis::chassis_ctrl_->setTargetPostureInWorld(
+                        target_posture, Chassis::Master::defaultTrajectoryLinkMode);
+                g_auto_align_pos_target_sent = true;
+            }
+        }
+        else
+        {
+            g_auto_align_pos_target_sent = false;
+            // 速度环控制：直接使用目标速度（转换类型：Chassis_Velocity_t → chassis::Velocity）
+            Chassis::chassis_ctrl_->setVelocityInBody(
+                    chassis::Velocity{ .vx = g_auto_align_chassis_v.vx,
+                                       .vy = g_auto_align_chassis_v.vy,
+                                       .wz = g_auto_align_chassis_v.wz },
+                    false);
+        }
         break;
     }
 
