@@ -71,6 +71,7 @@ volatile uint32_t lr_apriltag_update_seq = 0;
 static uint8_t g_frame_buf[LR_VISION_FRAME_SIZE] = { 0 };
 static uint8_t g_frame_pos                       = 0U;
 
+// 环形缓冲区写入一个字节，满时返回 false。
 static bool LR_RingPushByte(uint8_t byte)
 {
     const uint16_t head      = g_rx_ring_head;
@@ -85,6 +86,7 @@ static bool LR_RingPushByte(uint8_t byte)
     return true;
 }
 
+// 环形缓冲区读出一个字节，空时返回 false。
 static bool LR_RingPopByte(uint8_t* out)
 {
     if (!out)
@@ -103,6 +105,7 @@ static bool LR_RingPopByte(uint8_t* out)
     return true;
 }
 
+// 串口解析线程：持续从环形缓冲区中取字节并做分帧解析。
 static void VisionParseTask(void* argument)
 {
     (void)argument;
@@ -119,6 +122,7 @@ static void VisionParseTask(void* argument)
     }
 }
 
+// 周期请求线程：每秒向上位视觉发送一次相机 ID 请求。
 static void VisionRequestTask(void* argument)
 {
     (void)argument;
@@ -133,6 +137,7 @@ static void VisionRequestTask(void* argument)
     }
 }
 
+// 计算视觉二进制帧 payload 的 CRC8。
 static uint8_t LR_CRC8_Payload(const uint8_t* data, uint8_t len)
 {
     uint8_t crc = 0;
@@ -154,6 +159,7 @@ static uint8_t LR_CRC8_Payload(const uint8_t* data, uint8_t len)
     return crc;
 }
 
+// 将成功解析的数据压入 detect 缓存。
 static void LR_PushDetectPacket(const LR_DataPacket* pkt)
 {
     if (!pkt)
@@ -175,6 +181,7 @@ static void LR_PushDetectPacket(const LR_DataPacket* pkt)
     }
 }
 
+// 在二维平面内按 yaw 角旋转一个点。
 static void RotateXY(float in_x, float in_y, float yaw_deg, float* out_x, float* out_y)
 {
     const float yaw_rad = yaw_deg * PI / 180.0f;
@@ -191,6 +198,7 @@ static void RotateXY(float in_x, float in_y, float yaw_deg, float* out_x, float*
     }
 }
 
+// 初始化视觉串口接收、请求线程和环形缓冲区。
 void CammeraReceive_Init(void)
 {
     g_rx_ring_head         = 0U;
@@ -214,6 +222,7 @@ void CammeraReceive_Init(void)
     }
 }
 
+// USART2 接收完成中断处理。
 bool CammeraReceive_OnRxCplt(UART_HandleTypeDef* huart)
 {
     if (huart->Instance != USART2)
@@ -240,6 +249,7 @@ bool CammeraReceive_OnRxCplt(UART_HandleTypeDef* huart)
     return true;
 }
 
+// USART2 错误中断处理。
 bool CammeraReceive_OnError(UART_HandleTypeDef* huart)
 {
     if (huart->Instance != USART2)
@@ -263,11 +273,13 @@ bool CammeraReceive_OnError(UART_HandleTypeDef* huart)
     return true;
 }
 
+// 设置请求线程发送的相机 ID。
 void LR_Set_RequestCameraId(uint8_t camera_id)
 {
     g_request_camera_id = camera_id;
 }
 
+// 将 float 编码为小端序字节流。
 static void LR_EncodeFloatLE(float value, uint8_t* out4)
 {
     uint32_t bits = 0U;
@@ -278,6 +290,7 @@ static void LR_EncodeFloatLE(float value, uint8_t* out4)
     out4[3] = (uint8_t)((bits >> 24) & 0xFFU);
 }
 
+// 将小端序字节流解码为 float。
 static float LR_DecodeFloatLE(const uint8_t* in4)
 {
     const uint32_t bits = ((uint32_t)in4[0]) | ((uint32_t)in4[1] << 8) |
@@ -287,11 +300,13 @@ static float LR_DecodeFloatLE(const uint8_t* in4)
     return value;
 }
 
+// 设置数据类型回调。
 void LR_Set_DataType_Callback(LR_DataTypeCallback cb)
 {
     g_datatype_cb = cb;
 }
 
+// 设置相机相对车体的平移偏移。
 void LR_Set_Camera_To_Body_Offset(float x, float y, float z)
 {
     g_camera_to_body_offset.x = x;
@@ -299,6 +314,7 @@ void LR_Set_Camera_To_Body_Offset(float x, float y, float z)
     g_camera_to_body_offset.z = z;
 }
 
+// 设置机械臂基座相对车体的平移偏移。
 void LR_Set_Arm_To_Body_Offset(float x, float y, float z)
 {
     g_arm_to_body_offset.x = x;
@@ -306,16 +322,19 @@ void LR_Set_Arm_To_Body_Offset(float x, float y, float z)
     g_arm_to_body_offset.z = z;
 }
 
+// 读取相机到车体的偏移参数。
 LR_Vector3 LR_Get_Camera_To_Body_Offset(void)
 {
     return g_camera_to_body_offset;
 }
 
+// 读取机械臂基座到车体的偏移参数。
 LR_Vector3 LR_Get_Arm_To_Body_Offset(void)
 {
     return g_arm_to_body_offset;
 }
 
+// 将相机 yaw 转换到车体坐标系。
 void LR_Convert_Camerayaw_To_Body(float cam_yaw_deg, float* body_yaw_deg)
 {
     if (!body_yaw_deg)
@@ -327,6 +346,7 @@ void LR_Convert_Camerayaw_To_Body(float cam_yaw_deg, float* body_yaw_deg)
     *body_yaw_deg          = camera_yaw + (float)yaw_camera_to_body_deg;
 }
 
+// 将相机 yaw 转换到机械臂坐标系。
 void LR_Convert_Camerayaw_To_Arm(float cam_yaw_deg, float* arm_yaw_deg)
 {
     if (!arm_yaw_deg)
@@ -339,6 +359,7 @@ void LR_Convert_Camerayaw_To_Arm(float cam_yaw_deg, float* arm_yaw_deg)
     *arm_yaw_deg = body_yaw - (float)yaw_arm_to_body_deg;
 }
 
+// 将相机坐标系下的点转换为车体坐标系下的点。
 void LR_Convert_CameraPoint_To_Body(
         float cam_x, float cam_y, float cam_z, float* body_x, float* body_y, float* body_z)
 {
@@ -362,6 +383,7 @@ void LR_Convert_CameraPoint_To_Body(
     }
 }
 
+// 将相机坐标系下的点转换为机械臂坐标系下的点。
 void LR_Convert_CameraPoint_To_Arm(
         float cam_x, float cam_y, float cam_z, float* arm_x, float* arm_y, float* arm_z)
 {
@@ -380,6 +402,7 @@ void LR_Convert_CameraPoint_To_Arm(
     }
 }
 
+// 根据视觉返回值解算底盘目标点。
 void LR_Compute_Target(
         float x, float y, float z, float yaw, float* target_x, float* target_y, float* target_yaw)
 {
@@ -402,6 +425,7 @@ void LR_Compute_Target(
     *target_yaw = camera_yaw;
 }
 
+// 将一个视觉数据包转换为车体坐标系。
 LR_DataPacket LR_Convert_Packet_CameraToBody(const LR_DataPacket* cam_pkt)
 {
     LR_DataPacket out = { 0 };
@@ -420,6 +444,7 @@ LR_DataPacket LR_Convert_Packet_CameraToBody(const LR_DataPacket* cam_pkt)
     return out;
 }
 
+// 将一个视觉数据包转换为机械臂坐标系。
 LR_DataPacket LR_Convert_Packet_CameraToArm(const LR_DataPacket* cam_pkt)
 {
     LR_DataPacket out = { 0 };
@@ -438,6 +463,7 @@ LR_DataPacket LR_Convert_Packet_CameraToArm(const LR_DataPacket* cam_pkt)
     return out;
 }
 
+// 清空所有解析缓存和内部状态。
 void LR_Clear_Data_Buffer(void)
 {
     lr_detect_count      = 0;
@@ -459,6 +485,7 @@ void LR_Clear_Data_Buffer(void)
     memset(g_rx_ring, 0, sizeof(g_rx_ring));
 }
 
+// 发送一帧固定长度视觉二进制数据。
 bool LR_Send_Frame(float x, float y, float yaw, uint8_t status)
 {
     uint8_t frame[LR_VISION_FRAME_SIZE] = { 0 };
@@ -473,6 +500,7 @@ bool LR_Send_Frame(float x, float y, float yaw, uint8_t status)
     return HAL_UART_Transmit(&huart2, frame, LR_VISION_FRAME_SIZE, 10U) == HAL_OK;
 }
 
+// 按固定协议逐字节分帧并解析视觉数据。
 void LR_Parse_And_Store(uint8_t byte)
 {
     if (g_frame_pos == 0U)

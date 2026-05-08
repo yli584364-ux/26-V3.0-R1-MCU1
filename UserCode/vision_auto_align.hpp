@@ -6,17 +6,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// 自动对准控制模式
 enum Control_Mode
 {
-    VEL_Control = 0,
-    POS_Control = 1
+    VEL_Control = 0, // 速度控制模式
+    POS_Control = 1  // 位置控制模式
 };
 
+// 底盘速度结构体
 struct Chassis_Velocity_t
 {
-    float vx;
-    float vy;
-    float wz;
+    float vx; // 前进方向速度 (m/s)
+    float vy; // 左侧方向速度 (m/s)
+    float wz; // 旋转角速度 (deg/s)
 };
 
 void VisionAutoAlign_OnModeEnter(void);
