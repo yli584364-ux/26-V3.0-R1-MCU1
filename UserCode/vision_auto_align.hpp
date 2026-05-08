@@ -1,10 +1,9 @@
 #ifndef __VISION_AUTO_ALIGN_HPP__
 #define __VISION_AUTO_ALIGN_HPP__
 
-#include "chassis.hpp"
-
 #include <stdbool.h>
 #include <stdint.h>
+#include "chassis.hpp"
 
 // 自动对准控制模式
 enum Control_Mode
